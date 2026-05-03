@@ -13,22 +13,31 @@
 #define MAX_FRAMES 256
 #define BACKING_STORE "BACKING_STORE.bin"
 
-// page table entry structure
+// page table entry
 typedef struct
 {
     int valid;
     int frame_number;
 } PageTableEntry;
 
+// tlb entry
+typedef struct
+{
+    int valid;
+    int page_number;
+    int frame_number;
+    int last_used;
+} TLBEntry;
+
 void print_usage(char *program_name)
 {
-    // expected command format for the assignment
+    // print expected command format
     fprintf(stderr, "Usage: %s <addresses.txt> -tlb <lru|random> -page <fifo|lru|random> -frames <128|256>\n", program_name);
 }
 
 void initialize_page_table(PageTableEntry page_table[])
 {
-    // mark every page table entry as invalid at the start
+    // mark all page table entries as empty
     for (int i = 0; i < PAGE_TABLE_SIZE; i++)
     {
         page_table[i].valid = 0;
@@ -36,15 +45,97 @@ void initialize_page_table(PageTableEntry page_table[])
     }
 }
 
+void initialize_tlb(TLBEntry tlb[])
+{
+    // mark all tlb entries as empty
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        tlb[i].valid = 0;
+        tlb[i].page_number = -1;
+        tlb[i].frame_number = -1;
+        tlb[i].last_used = 0;
+    }
+}
+
+int search_tlb(TLBEntry tlb[], int page_number, int current_time)
+{
+    // search for page number in the tlb
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (tlb[i].valid == 1 && tlb[i].page_number == page_number)
+        {
+            tlb[i].last_used = current_time;
+            return tlb[i].frame_number;
+        }
+    }
+
+    return -1;
+}
+
+void update_tlb(TLBEntry tlb[], int page_number, int frame_number, char *tlb_policy, int current_time)
+{
+    int index = -1;
+
+    // update existing entry if already present
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (tlb[i].valid == 1 && tlb[i].page_number == page_number)
+        {
+            tlb[i].frame_number = frame_number;
+            tlb[i].last_used = current_time;
+            return;
+        }
+    }
+
+    // use first empty entry
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (tlb[i].valid == 0)
+        {
+            index = i;
+            break;
+        }
+    }
+
+    // choose replacement entry if tlb is full
+    if (index == -1)
+    {
+        if (strcmp(tlb_policy, "random") == 0)
+        {
+            index = rand() % TLB_ENTRIES;
+        }
+        else
+        {
+            int oldest_time = tlb[0].last_used;
+            index = 0;
+
+            for (int i = 1; i < TLB_ENTRIES; i++)
+            {
+                if (tlb[i].last_used < oldest_time)
+                {
+                    oldest_time = tlb[i].last_used;
+                    index = i;
+                }
+            }
+        }
+    }
+
+    // place new entry into tlb
+    tlb[index].valid = 1;
+    tlb[index].page_number = page_number;
+    tlb[index].frame_number = frame_number;
+    tlb[index].last_used = current_time;
+}
+
 int load_page_from_backing_store(FILE *backing_store, signed char physical_memory[][PAGE_SIZE], int page_number, int frame_number)
 {
-    // move to the correct page location in the backing store
+    // move to page location
     if (fseek(backing_store, page_number * PAGE_SIZE, SEEK_SET) != 0)
     {
         return 0;
     }
 
-    // read one full page into the selected physical memory frame
+    // read one page into memory
     if (fread(physical_memory[frame_number], sizeof(signed char), PAGE_SIZE, backing_store) != PAGE_SIZE)
     {
         return 0;
@@ -77,31 +168,32 @@ int main(int argc, char *argv[])
     int next_free_frame = 0;
     int total_addresses = 0;
     int page_faults = 0;
+    int tlb_hits = 0;
+    int current_time = 0;
 
     char *output_file_name = "results.csv";
 
     PageTableEntry page_table[PAGE_TABLE_SIZE];
+    TLBEntry tlb[TLB_ENTRIES];
     signed char physical_memory[MAX_FRAMES][PAGE_SIZE];
 
-    // initialize the page table before processing addresses
-    initialize_page_table(page_table);
+    srand(0);
 
-    // check argument count
+    initialize_page_table(page_table);
+    initialize_tlb(tlb);
+
     if (argc < 8)
     {
         print_usage(argv[0]);
         return 1;
     }
 
-    // get the address file first
     filename = argv[1];
 
-    // to manually parse command-line arguments so we can support -tlb, -page, and -frames exactly
     for (int i = 2; i < argc; i++)
     {
         if (strcmp(argv[i], "-tlb") == 0)
         {
-            // to make sure -tlb has a value after it
             if (i + 1 >= argc)
             {
                 fprintf(stderr, "Error: missing value after -tlb.\n");
@@ -111,7 +203,6 @@ int main(int argc, char *argv[])
 
             tlb_policy = argv[i + 1];
 
-            // note: assignment requires only lru and random for the tlb
             if (strcmp(tlb_policy, "lru") != 0 && strcmp(tlb_policy, "random") != 0)
             {
                 fprintf(stderr, "Error: invalid TLB policy. Valid options are: lru, random\n");
@@ -122,7 +213,6 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "-page") == 0)
         {
-            // to make sure -page has a value after it
             if (i + 1 >= argc)
             {
                 fprintf(stderr, "Error: missing value after -page.\n");
@@ -132,7 +222,6 @@ int main(int argc, char *argv[])
 
             page_policy = argv[i + 1];
 
-            // need fifo, lru, and random for page replacement
             if (strcmp(page_policy, "fifo") != 0 &&
                 strcmp(page_policy, "lru") != 0 &&
                 strcmp(page_policy, "random") != 0)
@@ -145,7 +234,6 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "-frames") == 0)
         {
-            // make sure -frames has a value after it
             if (i + 1 >= argc)
             {
                 fprintf(stderr, "Error: missing value after -frames.\n");
@@ -155,7 +243,6 @@ int main(int argc, char *argv[])
 
             frames = atoi(argv[i + 1]);
 
-            // use 256 frames first and 128 frames later
             if (frames != 128 && frames != 256)
             {
                 fprintf(stderr, "Error: invalid frame count. Valid options are: 128 or 256\n");
@@ -166,14 +253,12 @@ int main(int argc, char *argv[])
         }
         else
         {
-            // needed to catch unknown flags or extra arguments
             fprintf(stderr, "Error: unknown argument: %s\n", argv[i]);
             print_usage(argv[0]);
             return 1;
         }
     }
 
-    // make sure required options were provided
     if (filename == NULL || tlb_policy == NULL || page_policy == NULL || frames == 0)
     {
         fprintf(stderr, "Error: missing required argument.\n");
@@ -181,7 +266,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // open the input address file
     input_file = fopen(filename, "r");
     if (input_file == NULL)
     {
@@ -189,7 +273,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // open the backing store binary file
     backing_store = fopen(BACKING_STORE, "rb");
     if (backing_store == NULL)
     {
@@ -198,7 +281,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // open the csv output file
     output_file = fopen(output_file_name, "w");
     if (output_file == NULL)
     {
@@ -208,22 +290,18 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // write the required csv header
     fprintf(output_file,
             "Logical Address,Page Number,Offset,TLB Hit/Miss,Page Fault,Frame Number,Physical Address,Value,Replaced Page,Replaced Frame\n");
 
-    // read every logical address from the address file
     while (fgets(line, sizeof(line), input_file) != NULL)
     {
         char *endptr;
         int page_fault = 0;
+        int tlb_hit = 0;
 
         errno = 0;
-
-        // use strtoul instead of atoi so invalid input can be detected
         logical_address = (unsigned int)strtoul(line, &endptr, 10);
 
-        // validate invalid or overflowing address input
         if (errno != 0 || endptr == line)
         {
             fprintf(stderr, "Error: invalid logical address: %s", line);
@@ -233,77 +311,76 @@ int main(int argc, char *argv[])
             return 1;
         }
 
-        // mask the rightmost 16 bits because only 16-bit addresses matter
         masked_address = logical_address & 0xFFFF;
-
-        // extract the upper 8 bits as the page number
         page_number = masked_address >> 8;
-
-        // extract the lower 8 bits as the offset
         offset = masked_address & 0xFF;
 
         total_addresses++;
+        current_time++;
 
-        // check whether the page is already loaded in memory
-        if (page_table[page_number].valid == 1)
+        // check tlb first
+        frame_number = search_tlb(tlb, page_number, current_time);
+
+        if (frame_number != -1)
         {
-            // page table hit, so get the frame number directly
-            frame_number = page_table[page_number].frame_number;
+            tlb_hit = 1;
+            tlb_hits++;
         }
         else
         {
-            // page is not in memory, so a page fault occurs
-            page_fault = 1;
-            page_faults++;
-
-            // this phase only supports available free frames
-            if (next_free_frame >= frames)
+            // check page table after tlb miss
+            if (page_table[page_number].valid == 1)
             {
-                fprintf(stderr, "Error: physical memory is full. Page replacement is not implemented yet.\n");
-                fclose(input_file);
-                fclose(backing_store);
-                fclose(output_file);
-                return 1;
+                frame_number = page_table[page_number].frame_number;
+            }
+            else
+            {
+                page_fault = 1;
+                page_faults++;
+
+                if (next_free_frame >= frames)
+                {
+                    fprintf(stderr, "Error: physical memory is full. Page replacement is not implemented yet.\n");
+                    fclose(input_file);
+                    fclose(backing_store);
+                    fclose(output_file);
+                    return 1;
+                }
+
+                frame_number = next_free_frame;
+
+                if (load_page_from_backing_store(backing_store, physical_memory, page_number, frame_number) == 0)
+                {
+                    fprintf(stderr, "Error: could not read page %u from backing store.\n", page_number);
+                    fclose(input_file);
+                    fclose(backing_store);
+                    fclose(output_file);
+                    return 1;
+                }
+
+                page_table[page_number].valid = 1;
+                page_table[page_number].frame_number = frame_number;
+
+                next_free_frame++;
             }
 
-            frame_number = next_free_frame;
-
-            // load the missing page from the backing store into physical memory
-            if (load_page_from_backing_store(backing_store, physical_memory, page_number, frame_number) == 0)
-            {
-                fprintf(stderr, "Error: could not read page %u from backing store.\n", page_number);
-                fclose(input_file);
-                fclose(backing_store);
-                fclose(output_file);
-                return 1;
-            }
-
-            // update the page table so this page now points to the loaded frame
-            page_table[page_number].valid = 1;
-            page_table[page_number].frame_number = frame_number;
-
-            // move to the next available frame
-            next_free_frame++;
+            // update tlb after page table hit or page fault
+            update_tlb(tlb, page_number, frame_number, tlb_policy, current_time);
         }
 
-        // combine frame number and offset to get the physical address
         physical_address = frame_number * FRAME_SIZE + offset;
-
-        // get the signed byte value stored at that physical address
         value = physical_memory[frame_number][offset];
 
-        // required output for each translated address
         printf("Logical address: %u Physical address: %d Value: %d\n",
                masked_address,
                physical_address,
                value);
 
-        // write real translation data to the csv file
         fprintf(output_file, "%u,%u,%u,%s,%s,%d,%d,%d,%d,%d\n",
                 masked_address,
                 page_number,
                 offset,
-                "miss",
+                tlb_hit ? "hit" : "miss",
                 page_fault ? "yes" : "no",
                 frame_number,
                 physical_address,
@@ -312,17 +389,15 @@ int main(int argc, char *argv[])
                 -1);
     }
 
-    // print basic final statistics for this phase
     if (total_addresses > 0)
     {
         printf("Number of Translated Addresses = %d\n", total_addresses);
         printf("Page Faults = %d\n", page_faults);
         printf("Page Fault Rate = %.3f\n", (double)page_faults / total_addresses);
-        printf("TLB Hits = 0\n");
-        printf("TLB Hit Rate = %.3f\n", 0.0);
+        printf("TLB Hits = %d\n", tlb_hits);
+        printf("TLB Hit Rate = %.3f\n", (double)tlb_hits / total_addresses);
     }
 
-    // close every file exactly once
     fclose(input_file);
     fclose(backing_store);
     fclose(output_file);

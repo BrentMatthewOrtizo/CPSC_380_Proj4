@@ -1,3 +1,1 @@
 Logical Address,Page Number,Offset,TLB Hit/Miss,Page Fault,Frame Number,Physical Address,Value,Replaced Page,Replaced Frame
-1,0,1,miss,no,-1,-1,0,-1,-1
-256,1,0,miss,no,-1,-1,0,-1,-1

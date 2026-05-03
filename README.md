@@ -108,8 +108,24 @@ gcc vmmgr.c -o vmmgr
 ---
 
 ## Execution
+
+Example runs for each workload:
+
+Random:
 ```
 ./vmmgr addresses.txt -tlb lru -page fifo -frames 128
+```
+Sequential:
+```
+./vmmgr sequential.txt -tlb lru -page fifo -frames 128
+```
+Looping:
+```
+./vmmgr looping.txt -tlb lru -page fifo -frames 128
+```
+Stride:
+```
+./vmmgr stride.txt -tlb lru -page fifo -frames 128
 ```
 
 ---

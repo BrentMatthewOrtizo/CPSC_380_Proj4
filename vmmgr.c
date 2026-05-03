@@ -5,15 +5,25 @@
 #include <getopt.h>
 #include <string.h>
 
+// System Specifications:
+
+#define TLB_ENTRIES 16
+#define FRAME_SIZE 256
+#define PAGE_SIZE  256
+#define PAGE_TABLE_SIZE 256
+#define BACKING_STORE "BACKING_STORE.bin"
+
 int main(int argc, char *argv[])
 {
     int option;
     int frames = 0;
     FILE *input_file;
+    FILE *output_file;
     char *page = NULL;
     char *tlb = NULL;
     char line[100];
     unsigned int page_number, offset;
+    char *outputFileName = "results.csv";
 
     // Define long options
     static struct option long_options[] = {
@@ -77,14 +87,28 @@ int main(int argc, char *argv[])
         char *filename = argv[optind];
         input_file = fopen(filename, "r");
 
-        // Check that the file can be opened
+        // Check that the files can be opened
         if (input_file == NULL)
         {
             fprintf(stderr, "Error: could not open input file %s\n", filename);
             return 1;
         }
+
+        output_file = fopen(outputFileName, "w");
+        if (output_file == NULL)
+        {
+            fprintf(stderr, "Error: could not open input file %s\n", outputFileName);
+            return 1;
+        }
+        // Write header to the output CSV file
+        fprintf(output_file, "Logical Address,\tPage Number,\t" 
+                "Offset,\tTLB hit/miss,\tPage fault (yes/no),Frame number\t,"
+                "Physical address,\tValue at address,Replaced page/frame");
     }
 
+        #ifdef DEBUG
+            printf("Running in DEBUG mode\n");
+        #endif
     // Read and print the contents of the input file
     while (fgets(line, sizeof(line), input_file) != NULL)
     {
@@ -95,12 +119,17 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Error: %s is an invalid logical address. Must be a 32-bit unsigned integer.\n", argv[0]);
             return 1;
         }
-        // Masking the rightmost 16 bits of the logical address to get the page number, and masking the rightmost 12 bits to get the offset
+        #ifdef DEBUG
+            printf("Input from address.txt: %s", line);
+        #endif
+        // Masking the rightmost 16 bits of the logical address to get the page number, 
+        // and masking the rightmost 12 bits to get the offset
         logical_address = logical_address & 0xFFFF; // Mask the rightmost 16 bits
         page_number = logical_address >>  8; // Shift right by 8 bits 
         offset = logical_address & 0xFF; // Mask the rightmost 8 bits 
     }
 
+    fclose(input_file);
     fclose(input_file);
     return 0;
 }

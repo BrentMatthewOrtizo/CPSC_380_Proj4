@@ -119,6 +119,17 @@ gcc vmmgr.c -o vmmgr
 Logical address: X Physical address: Y Value: Z
 ```
 
+At the end of execution, the program prints summary statistics:
+
+```
+Number of Translated Addresses = N
+Page Faults = X
+Page Fault Rate = Y
+TLB Hits = Z
+TLB Hit Rate = W
+Replacements = R
+```
+
 ---
 
 ## CSV Output

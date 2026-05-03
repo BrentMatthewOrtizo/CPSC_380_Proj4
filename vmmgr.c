@@ -2,134 +2,228 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <getopt.h>
 #include <string.h>
+#include <errno.h>
 
-// System Specifications:
-
+// system specifications
 #define TLB_ENTRIES 16
 #define FRAME_SIZE 256
-#define PAGE_SIZE  256
+#define PAGE_SIZE 256
 #define PAGE_TABLE_SIZE 256
 #define BACKING_STORE "BACKING_STORE.bin"
 
+void print_usage(char *program_name)
+{
+    // prints the expected command format for the assignment
+    fprintf(stderr, "Usage: %s <addresses.txt> -tlb <lru|random> -page <fifo|lru|random> -frames <128|256>\n", program_name);
+}
+
 int main(int argc, char *argv[])
 {
-    int option;
     int frames = 0;
-    FILE *input_file;
-    FILE *output_file;
-    char *page = NULL;
-    char *tlb = NULL;
+    FILE *input_file = NULL;
+    FILE *output_file = NULL;
+    FILE *backing_store = NULL;
+
+    char *filename = NULL;
+    char *page_policy = NULL;
+    char *tlb_policy = NULL;
     char line[100];
-    unsigned int page_number, offset;
-    char *outputFileName = "results.csv";
 
-    // Define long options
-    static struct option long_options[] = {
-        {"frames", required_argument, 0, 'f'},
-        {"page", required_argument, 0, 'p'},
-        {"tlb", required_argument, 0, 't'},
-        {0, 0, 0, 0}};
+    unsigned int logical_address;
+    unsigned int masked_address;
+    unsigned int page_number;
+    unsigned int offset;
 
-    // Parse command-line options
-    while ((option = getopt_long(argc, argv, "t:p:f:", long_options, NULL)) != -1)
+    char *output_file_name = "results.csv";
+
+    // make sure the user gives enough arguments
+    if (argc < 8)
     {
-        switch (option)
-        {
-        case 'f':
-            // Validate that frames is a positive integer, and a power of 2
-            frames = atoi(optarg);
-            if (frames <= 0 || (frames & (frames - 1)) != 0)
-            {
-                fprintf(stderr, "Error: invalid frame count. Must be a positive power of 2.\n");
-                return 1;
-            }
-            break;
-        case 'p':
-            page = optarg;
-            if (strcmp(page, "fifo") != 0 && strcmp(page, "random") != 0 && strcmp(page, "lru") != 0)
-            {
-                fprintf(stderr, "Error: invalid Page replacement policy. Valid options are: fifo, random, and lru\n");
-                return 1;
-            }
-            break;
-        case 't':
-            tlb = optarg;
-            if (strcmp(tlb, "fifo") != 0 && strcmp(tlb, "random") != 0)
-            {
-                fprintf(stderr, "Error: invalid TLB replacement policy. Valid options are: fifo, random\n");
-                return 1;
-            }
-            break;
-        case '?':
-            // getopt_long already printed an error message
-            break;
-        default:
-            abort();
-        }
-    }
-
-    // Validate that all required options were provided
-    if (frames == 0 || page == NULL || tlb == NULL)
-    {
-        fprintf(stderr, "Usage: %s -f <frames> -p <page replacement policy> -t <tlb replacement policy> <input file>\n", argv[0]);
+        print_usage(argv[0]);
         return 1;
     }
-    // Validating that the number of non-option arguments is exactly 1, and that the input file can be opened
-    if (optind != argc - 1)
+
+    // get the address file first because the assignment format starts with addresses.txt
+    filename = argv[1];
+
+    // manually parse command-line arguments so we can support -tlb, -page, and -frames exactly
+    for (int i = 2; i < argc; i++)
     {
-        fprintf(stderr, "Too many arguments: %s\n Only one non-option argument allowed", argv[optind]);
+        if (strcmp(argv[i], "-tlb") == 0)
+        {
+            // make sure -tlb has a value after it
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Error: missing value after -tlb.\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+
+            tlb_policy = argv[i + 1];
+
+            // the assignment only requires lru and random for the tlb
+            if (strcmp(tlb_policy, "lru") != 0 && strcmp(tlb_policy, "random") != 0)
+            {
+                fprintf(stderr, "Error: invalid TLB policy. Valid options are: lru, random\n");
+                return 1;
+            }
+
+            i++;
+        }
+        else if (strcmp(argv[i], "-page") == 0)
+        {
+            // make sure -page has a value after it
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Error: missing value after -page.\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+
+            page_policy = argv[i + 1];
+
+            // the assignment requires fifo, lru, and random for page replacement
+            if (strcmp(page_policy, "fifo") != 0 &&
+                strcmp(page_policy, "lru") != 0 &&
+                strcmp(page_policy, "random") != 0)
+            {
+                fprintf(stderr, "Error: invalid page replacement policy. Valid options are: fifo, lru, random\n");
+                return 1;
+            }
+
+            i++;
+        }
+        else if (strcmp(argv[i], "-frames") == 0)
+        {
+            // make sure -frames has a value after it
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Error: missing value after -frames.\n");
+                print_usage(argv[0]);
+                return 1;
+            }
+
+            frames = atoi(argv[i + 1]);
+
+            // the assignment specifically uses 256 frames first and 128 frames later
+            if (frames != 128 && frames != 256)
+            {
+                fprintf(stderr, "Error: invalid frame count. Valid options are: 128 or 256\n");
+                return 1;
+            }
+
+            i++;
+        }
+        else
+        {
+            // catches unknown flags or extra arguments
+            fprintf(stderr, "Error: unknown argument: %s\n", argv[i]);
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
+    // make sure all required options were provided
+    if (filename == NULL || tlb_policy == NULL || page_policy == NULL || frames == 0)
+    {
+        fprintf(stderr, "Error: missing required argument.\n");
+        print_usage(argv[0]);
         return 1;
     }
-    else
+
+    // open the input address file
+    input_file = fopen(filename, "r");
+    if (input_file == NULL)
     {
-        char *filename = argv[optind];
-        input_file = fopen(filename, "r");
-
-        // Check that the files can be opened
-        if (input_file == NULL)
-        {
-            fprintf(stderr, "Error: could not open input file %s\n", filename);
-            return 1;
-        }
-
-        output_file = fopen(outputFileName, "w");
-        if (output_file == NULL)
-        {
-            fprintf(stderr, "Error: could not open input file %s\n", outputFileName);
-            return 1;
-        }
-        // Write header to the output CSV file
-        fprintf(output_file, "Logical Address,\tPage Number,\t" 
-                "Offset,\tTLB hit/miss,\tPage fault (yes/no),Frame number\t,"
-                "Physical address,\tValue at address,Replaced page/frame");
+        fprintf(stderr, "Error: could not open input file %s\n", filename);
+        return 1;
     }
 
-        #ifdef DEBUG
-            printf("Running in DEBUG mode\n");
-        #endif
-    // Read and print the contents of the input file
+    // open the backing store binary file
+    backing_store = fopen(BACKING_STORE, "rb");
+    if (backing_store == NULL)
+    {
+        fprintf(stderr, "Error: could not open backing store file %s\n", BACKING_STORE);
+        fclose(input_file);
+        return 1;
+    }
+
+    // open the csv output file
+    output_file = fopen(output_file_name, "w");
+    if (output_file == NULL)
+    {
+        fprintf(stderr, "Error: could not open output file %s\n", output_file_name);
+        fclose(input_file);
+        fclose(backing_store);
+        return 1;
+    }
+
+    // write the required csv header
+    fprintf(output_file,
+            "Logical Address,Page Number,Offset,TLB Hit/Miss,Page Fault,Frame Number,Physical Address,Value,Replaced Page,Replaced Frame\n");
+
+#ifdef DEBUG
+    printf("Running in DEBUG mode\n");
+    printf("Input file: %s\n", filename);
+    printf("TLB policy: %s\n", tlb_policy);
+    printf("Page policy: %s\n", page_policy);
+    printf("Frames: %d\n", frames);
+#endif
+
+    // read every logical address from the address file
     while (fgets(line, sizeof(line), input_file) != NULL)
     {
-        // Check that the logical address is a valid 32-bit unsigned integer
-        unsigned int logical_address = atoi(line);
-        if (logical_address < 0 || logical_address > 0xFFFFFFFF)
+        char *endptr;
+
+        errno = 0;
+
+        // use strtoul instead of atoi so invalid input can be detected
+        logical_address = (unsigned int)strtoul(line, &endptr, 10);
+
+        // validate invalid or overflowing address input
+        if (errno != 0 || endptr == line)
         {
-            fprintf(stderr, "Error: %s is an invalid logical address. Must be a 32-bit unsigned integer.\n", argv[0]);
+            fprintf(stderr, "Error: invalid logical address: %s", line);
+            fclose(input_file);
+            fclose(backing_store);
+            fclose(output_file);
             return 1;
         }
-        #ifdef DEBUG
-            printf("Input from address.txt: %s", line);
-        #endif
-        // Masking the rightmost 16 bits of the logical address to get the page number, 
-        // and masking the rightmost 12 bits to get the offset
-        logical_address = logical_address & 0xFFFF; // Mask the rightmost 16 bits
-        page_number = logical_address >>  8; // Shift right by 8 bits 
-        offset = logical_address & 0xFF; // Mask the rightmost 8 bits 
+
+        // mask the rightmost 16 bits because only 16-bit addresses matter
+        masked_address = logical_address & 0xFFFF;
+
+        // extract the upper 8 bits as the page number
+        page_number = masked_address >> 8;
+
+        // extract the lower 8 bits as the offset
+        offset = masked_address & 0xFF;
+
+#ifdef DEBUG
+        printf("logical address: %u, masked address: %u, page: %u, offset: %u\n",
+               logical_address, masked_address, page_number, offset);
+#endif
+
+        // placeholder row for now so we can confirm csv logging works
+        // this will be replaced once page table, tlb, and physical memory are implemented
+        fprintf(output_file, "%u,%u,%u,%s,%s,%d,%d,%d,%d,%d\n",
+                masked_address,
+                page_number,
+                offset,
+                "miss",
+                "no",
+                -1,
+                -1,
+                0,
+                -1,
+                -1);
     }
 
+    // close every file exactly once
     fclose(input_file);
-    fclose(input_file);
+    fclose(backing_store);
+    fclose(output_file);
+
     return 0;
 }

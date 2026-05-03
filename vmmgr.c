@@ -14,7 +14,7 @@
 
 void print_usage(char *program_name)
 {
-    // prints the expected command format for the assignment
+    // expected command format for the assignment
     fprintf(stderr, "Usage: %s <addresses.txt> -tlb <lru|random> -page <fifo|lru|random> -frames <128|256>\n", program_name);
 }
 
@@ -37,22 +37,22 @@ int main(int argc, char *argv[])
 
     char *output_file_name = "results.csv";
 
-    // make sure the user gives enough arguments
+    // check argument count
     if (argc < 8)
     {
         print_usage(argv[0]);
         return 1;
     }
 
-    // get the address file first because the assignment format starts with addresses.txt
+    // get the address file first 
     filename = argv[1];
 
-    // manually parse command-line arguments so we can support -tlb, -page, and -frames exactly
+    // to manually parse command-line arguments so we can support -tlb, -page, and -frames exactly
     for (int i = 2; i < argc; i++)
     {
         if (strcmp(argv[i], "-tlb") == 0)
         {
-            // make sure -tlb has a value after it
+            // to make sure -tlb has a value after it
             if (i + 1 >= argc)
             {
                 fprintf(stderr, "Error: missing value after -tlb.\n");
@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
 
             tlb_policy = argv[i + 1];
 
-            // the assignment only requires lru and random for the tlb
+            // note: assignment requires only lru and random for the tlb
             if (strcmp(tlb_policy, "lru") != 0 && strcmp(tlb_policy, "random") != 0)
             {
                 fprintf(stderr, "Error: invalid TLB policy. Valid options are: lru, random\n");
@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "-page") == 0)
         {
-            // make sure -page has a value after it
+            // to make sure -page has a value after it
             if (i + 1 >= argc)
             {
                 fprintf(stderr, "Error: missing value after -page.\n");
@@ -83,7 +83,7 @@ int main(int argc, char *argv[])
 
             page_policy = argv[i + 1];
 
-            // the assignment requires fifo, lru, and random for page replacement
+            // need fifo, lru, and random for page replacement
             if (strcmp(page_policy, "fifo") != 0 &&
                 strcmp(page_policy, "lru") != 0 &&
                 strcmp(page_policy, "random") != 0)
@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 
             frames = atoi(argv[i + 1]);
 
-            // the assignment specifically uses 256 frames first and 128 frames later
+            // use 256 frames first and 128 frames later
             if (frames != 128 && frames != 256)
             {
                 fprintf(stderr, "Error: invalid frame count. Valid options are: 128 or 256\n");
@@ -117,14 +117,14 @@ int main(int argc, char *argv[])
         }
         else
         {
-            // catches unknown flags or extra arguments
+            // needed to catch unknown flags or extra arguments
             fprintf(stderr, "Error: unknown argument: %s\n", argv[i]);
             print_usage(argv[0]);
             return 1;
         }
     }
 
-    // make sure all required options were provided
+    // make sure required options were provided
     if (filename == NULL || tlb_policy == NULL || page_policy == NULL || frames == 0)
     {
         fprintf(stderr, "Error: missing required argument.\n");
@@ -163,14 +163,6 @@ int main(int argc, char *argv[])
     fprintf(output_file,
             "Logical Address,Page Number,Offset,TLB Hit/Miss,Page Fault,Frame Number,Physical Address,Value,Replaced Page,Replaced Frame\n");
 
-#ifdef DEBUG
-    printf("Running in DEBUG mode\n");
-    printf("Input file: %s\n", filename);
-    printf("TLB policy: %s\n", tlb_policy);
-    printf("Page policy: %s\n", page_policy);
-    printf("Frames: %d\n", frames);
-#endif
-
     // read every logical address from the address file
     while (fgets(line, sizeof(line), input_file) != NULL)
     {
@@ -200,13 +192,7 @@ int main(int argc, char *argv[])
         // extract the lower 8 bits as the offset
         offset = masked_address & 0xFF;
 
-#ifdef DEBUG
-        printf("logical address: %u, masked address: %u, page: %u, offset: %u\n",
-               logical_address, masked_address, page_number, offset);
-#endif
-
-        // placeholder row for now so we can confirm csv logging works
-        // this will be replaced once page table, tlb, and physical memory are implemented
+        // TODO: placeholder row for now so we can confirm csv logging works, work on page table, tlb, and physical memory implementation
         fprintf(output_file, "%u,%u,%u,%s,%s,%d,%d,%d,%d,%d\n",
                 masked_address,
                 page_number,

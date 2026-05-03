@@ -146,6 +146,24 @@ TLB Hit Rate = W
 Replacements = R
 ```
 
+A sample of running: ```./vmmgr addresses.txt -tlb lru -page fifo -frames 128``` shown below:
+
+```
+...
+Logical address: 31260 Physical address: 5148 Value: 0
+Logical address: 17071 Physical address: 5551 Value: -85
+Logical address: 8940 Physical address: 5868 Value: 0
+Logical address: 9929 Physical address: 6089 Value: 0
+Logical address: 45563 Physical address: 6395 Value: 126
+Logical address: 12107 Physical address: 6475 Value: -46
+Number of Translated Addresses = 1000
+Page Faults = 538
+Page Fault Rate = 0.538
+TLB Hits = 55
+TLB Hit Rate = 0.055
+Replacements = 410
+```
+
 ---
 
 ## CSV Output

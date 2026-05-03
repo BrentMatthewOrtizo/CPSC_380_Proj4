@@ -53,3 +53,8 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Kai's
+addresses.txt
+BACKING_STORE.bin
+vmmgr

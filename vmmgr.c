@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
         logical_address = (unsigned int)strtoul(line, &endptr, 10);
 
         // validate invalid or overflowing address input
-        if (errno != 0 || endptr == line)
+        if (errno != 0 || endptr == line || (*endptr != '\n' && *endptr != '\0'))
         {
             fprintf(stderr, "Error: invalid logical address: %s", line);
             fclose(input_file);

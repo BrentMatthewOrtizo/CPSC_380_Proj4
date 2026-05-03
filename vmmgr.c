@@ -18,6 +18,8 @@ typedef struct
 {
     int valid;
     int frame_number;
+    int last_used;
+    int loaded_time;
 } PageTableEntry;
 
 // tlb entry
@@ -42,6 +44,8 @@ void initialize_page_table(PageTableEntry page_table[])
     {
         page_table[i].valid = 0;
         page_table[i].frame_number = -1;
+        page_table[i].last_used = 0;
+        page_table[i].loaded_time = 0;
     }
 }
 
@@ -54,6 +58,15 @@ void initialize_tlb(TLBEntry tlb[])
         tlb[i].page_number = -1;
         tlb[i].frame_number = -1;
         tlb[i].last_used = 0;
+    }
+}
+
+void initialize_frame_table(int frame_to_page[])
+{
+    // mark all frames as empty
+    for (int i = 0; i < MAX_FRAMES; i++)
+    {
+        frame_to_page[i] = -1;
     }
 }
 
@@ -70,6 +83,21 @@ int search_tlb(TLBEntry tlb[], int page_number, int current_time)
     }
 
     return -1;
+}
+
+void invalidate_tlb_page(TLBEntry tlb[], int page_number)
+{
+    // remove old page from tlb
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (tlb[i].valid == 1 && tlb[i].page_number == page_number)
+        {
+            tlb[i].valid = 0;
+            tlb[i].page_number = -1;
+            tlb[i].frame_number = -1;
+            tlb[i].last_used = 0;
+        }
+    }
 }
 
 void update_tlb(TLBEntry tlb[], int page_number, int frame_number, char *tlb_policy, int current_time)
@@ -127,6 +155,54 @@ void update_tlb(TLBEntry tlb[], int page_number, int frame_number, char *tlb_pol
     tlb[index].last_used = current_time;
 }
 
+int choose_victim_frame(PageTableEntry page_table[], int frame_to_page[], int frames, char *page_policy)
+{
+    int victim_frame = 0;
+
+    // random replacement
+    if (strcmp(page_policy, "random") == 0)
+    {
+        return rand() % frames;
+    }
+
+    // fifo replacement
+    if (strcmp(page_policy, "fifo") == 0)
+    {
+        int victim_page = frame_to_page[0];
+        int oldest_time = page_table[victim_page].loaded_time;
+
+        for (int i = 1; i < frames; i++)
+        {
+            int current_page = frame_to_page[i];
+
+            if (page_table[current_page].loaded_time < oldest_time)
+            {
+                oldest_time = page_table[current_page].loaded_time;
+                victim_frame = i;
+            }
+        }
+    }
+    else
+    {
+        // lru replacement
+        int victim_page = frame_to_page[0];
+        int oldest_time = page_table[victim_page].last_used;
+
+        for (int i = 1; i < frames; i++)
+        {
+            int current_page = frame_to_page[i];
+
+            if (page_table[current_page].last_used < oldest_time)
+            {
+                oldest_time = page_table[current_page].last_used;
+                victim_frame = i;
+            }
+        }
+    }
+
+    return victim_frame;
+}
+
 int load_page_from_backing_store(FILE *backing_store, signed char physical_memory[][PAGE_SIZE], int page_number, int frame_number)
 {
     // move to page location
@@ -169,6 +245,7 @@ int main(int argc, char *argv[])
     int total_addresses = 0;
     int page_faults = 0;
     int tlb_hits = 0;
+    int replacements = 0;
     int current_time = 0;
 
     char *output_file_name = "results.csv";
@@ -176,11 +253,13 @@ int main(int argc, char *argv[])
     PageTableEntry page_table[PAGE_TABLE_SIZE];
     TLBEntry tlb[TLB_ENTRIES];
     signed char physical_memory[MAX_FRAMES][PAGE_SIZE];
+    int frame_to_page[MAX_FRAMES];
 
     srand(0);
 
     initialize_page_table(page_table);
     initialize_tlb(tlb);
+    initialize_frame_table(frame_to_page);
 
     if (argc < 8)
     {
@@ -298,6 +377,8 @@ int main(int argc, char *argv[])
         char *endptr;
         int page_fault = 0;
         int tlb_hit = 0;
+        int replaced_page = -1;
+        int replaced_frame = -1;
 
         errno = 0;
         logical_address = (unsigned int)strtoul(line, &endptr, 10);
@@ -325,6 +406,7 @@ int main(int argc, char *argv[])
         {
             tlb_hit = 1;
             tlb_hits++;
+            page_table[page_number].last_used = current_time;
         }
         else
         {
@@ -332,22 +414,36 @@ int main(int argc, char *argv[])
             if (page_table[page_number].valid == 1)
             {
                 frame_number = page_table[page_number].frame_number;
+                page_table[page_number].last_used = current_time;
             }
             else
             {
                 page_fault = 1;
                 page_faults++;
 
-                if (next_free_frame >= frames)
+                if (next_free_frame < frames)
                 {
-                    fprintf(stderr, "Error: physical memory is full. Page replacement is not implemented yet.\n");
-                    fclose(input_file);
-                    fclose(backing_store);
-                    fclose(output_file);
-                    return 1;
+                    // use next free frame
+                    frame_number = next_free_frame;
+                    next_free_frame++;
                 }
+                else
+                {
+                    // replace a page when memory is full
+                    frame_number = choose_victim_frame(page_table, frame_to_page, frames, page_policy);
 
-                frame_number = next_free_frame;
+                    replaced_frame = frame_number;
+                    replaced_page = frame_to_page[frame_number];
+
+                    page_table[replaced_page].valid = 0;
+                    page_table[replaced_page].frame_number = -1;
+                    page_table[replaced_page].last_used = 0;
+                    page_table[replaced_page].loaded_time = 0;
+
+                    invalidate_tlb_page(tlb, replaced_page);
+
+                    replacements++;
+                }
 
                 if (load_page_from_backing_store(backing_store, physical_memory, page_number, frame_number) == 0)
                 {
@@ -358,10 +454,12 @@ int main(int argc, char *argv[])
                     return 1;
                 }
 
+                // update mappings
                 page_table[page_number].valid = 1;
                 page_table[page_number].frame_number = frame_number;
-
-                next_free_frame++;
+                page_table[page_number].last_used = current_time;
+                page_table[page_number].loaded_time = current_time;
+                frame_to_page[frame_number] = page_number;
             }
 
             // update tlb after page table hit or page fault
@@ -385,8 +483,8 @@ int main(int argc, char *argv[])
                 frame_number,
                 physical_address,
                 value,
-                -1,
-                -1);
+                replaced_page,
+                replaced_frame);
     }
 
     if (total_addresses > 0)
@@ -396,6 +494,7 @@ int main(int argc, char *argv[])
         printf("Page Fault Rate = %.3f\n", (double)page_faults / total_addresses);
         printf("TLB Hits = %d\n", tlb_hits);
         printf("TLB Hit Rate = %.3f\n", (double)tlb_hits / total_addresses);
+        printf("Replacements = %d\n", replacements);
     }
 
     fclose(input_file);

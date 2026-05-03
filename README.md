@@ -108,8 +108,24 @@ gcc vmmgr.c -o vmmgr
 ---
 
 ## Execution
+
+Example runs for each workload:
+
+Random:
 ```
 ./vmmgr addresses.txt -tlb lru -page fifo -frames 128
+```
+Sequential:
+```
+./vmmgr sequential.txt -tlb lru -page fifo -frames 128
+```
+Looping:
+```
+./vmmgr looping.txt -tlb lru -page fifo -frames 128
+```
+Stride:
+```
+./vmmgr stride.txt -tlb lru -page fifo -frames 128
 ```
 
 ---
@@ -117,6 +133,35 @@ gcc vmmgr.c -o vmmgr
 ## Output
 ```
 Logical address: X Physical address: Y Value: Z
+```
+
+At the end of execution, the program prints summary statistics:
+
+```
+Number of Translated Addresses = N
+Page Faults = X
+Page Fault Rate = Y
+TLB Hits = Z
+TLB Hit Rate = W
+Replacements = R
+```
+
+A sample of running: ```./vmmgr addresses.txt -tlb lru -page fifo -frames 128``` shown below:
+
+```
+...
+Logical address: 31260 Physical address: 5148 Value: 0
+Logical address: 17071 Physical address: 5551 Value: -85
+Logical address: 8940 Physical address: 5868 Value: 0
+Logical address: 9929 Physical address: 6089 Value: 0
+Logical address: 45563 Physical address: 6395 Value: 126
+Logical address: 12107 Physical address: 6475 Value: -46
+Number of Translated Addresses = 1000
+Page Faults = 538
+Page Fault Rate = 0.538
+TLB Hits = 55
+TLB Hit Rate = 0.055
+Replacements = 410
 ```
 
 ---
@@ -182,6 +227,22 @@ The sequential workload also performed very well. Even though it accessed a larg
 The random workload showed much worse performance. Since addresses were accessed unpredictably, the system could not take advantage of locality. This resulted in a high page fault rate (0.538) and a low TLB hit rate (0.055). Pages were frequently replaced before reuse.
 
 The stride workload performed the worst. Each access jumped to a different page, preventing reuse entirely. This resulted in a 100% page fault rate and a 0% TLB hit rate, representing a worst-case scenario.
+
+---
+
+## Performance Analysis
+
+__Which policy performs best under high locality?__
+LRU performs best under high locality. In workloads such as looping and sequential, recently used pages are accessed again quickly. LRU keeps these pages in memory, resulting in lower page fault rates and higher TLB hit rates compared to other policies.
+
+__When does LRU outperform FIFO?__
+LRU outperforms FIFO when pages are reused frequently. FIFO removes the oldest loaded page regardless of whether it is still being used, which can lead to evicting useful pages. In contrast, LRU keeps recently accessed pages, making it more effective in workloads with temporal locality such as looping.
+
+__When does Random perform similarly to other policies?__
+Random performs similarly to other policies when the access pattern has little or no locality, such as the random workload. Since page accesses are unpredictable, no replacement policy has a strong advantage, and all perform similarly in terms of page faults and replacements.
+
+__How does reducing memory size affect performance?__
+Reducing memory size from 256 frames to 128 frames increases page faults and replacements. With fewer frames available, pages must be evicted more often, even if they may be needed again soon. This leads to higher page fault rates and lower overall performance.
 
 ---
 

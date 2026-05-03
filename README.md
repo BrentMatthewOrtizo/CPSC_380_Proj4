@@ -212,6 +212,22 @@ The stride workload performed the worst. Each access jumped to a different page,
 
 ---
 
+## Performance Analysis
+
+__Which policy performs best under high locality?__
+LRU performs best under high locality. In workloads such as looping and sequential, recently used pages are accessed again quickly. LRU keeps these pages in memory, resulting in lower page fault rates and higher TLB hit rates compared to other policies.
+
+__When does LRU outperform FIFO?__
+LRU outperforms FIFO when pages are reused frequently. FIFO removes the oldest loaded page regardless of whether it is still being used, which can lead to evicting useful pages. In contrast, LRU keeps recently accessed pages, making it more effective in workloads with temporal locality such as looping.
+
+__When does Random perform similarly to other policies?__
+Random performs similarly to other policies when the access pattern has little or no locality, such as the random workload. Since page accesses are unpredictable, no replacement policy has a strong advantage, and all perform similarly in terms of page faults and replacements.
+
+__How does reducing memory size affect performance?__
+Reducing memory size from 256 frames to 128 frames increases page faults and replacements. With fewer frames available, pages must be evicted more often, even if they may be needed again soon. This leads to higher page fault rates and lower overall performance.
+
+---
+
 ## Policy Observations
 
 - Best under locality: LRU  
